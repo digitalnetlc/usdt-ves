@@ -8,9 +8,9 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
-    "next": "15.0.0",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "next": "14.2.10",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
     "stripe": "^16.6.0",
     "date-fns-tz": "^2.0.0"
   }
