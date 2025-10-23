@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cambio USDT ⇄ VES</title>
+<style>
+  :root { --bg:#0b0c10; --card:#ffffff; --muted:#6b7280; --text:#111; --brand:#111; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:780px;margin:40px auto;padding:0 16px}
+  .title{color:#fff;margin:0 0 16px;font-size:28px;font-weight:700}
+  .card{background:var(--card);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:18px;margin:12px 0}
+  .row{display:flex;gap:12px}
+  .row>.card{flex:1}
+  .muted{color:var(--muted);font-size:12px}
+  .big{font-size:18px;font-weight:700;margin-top:6px}
+  label{display:block;font-size:13px;color:#444;margin:8px 0 4px}
+  input,button,select{width:100%;padding:12px;border-radius:12px;border:1px solid #e5e7eb;font-size:15px}
+  button{background:var(--brand);color:#fff;border:0;cursor:pointer}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .header .grow{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:999px;padding:6px 10px;font-size:12px}
+  .err{background:#ffe9e9;color:#a40000;padding:10px;border-radius:10px;margin-top:8px;display:none}
+  .ok{background:#e9fff1;color:#046c2c;padding:10px;border-radius:10px;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Cambio USDT ⇄ VES</h1>
+
+    <div class="card">
+      <div class="header">
+        <div class="grow">
+          <div class="muted">Tasa vigente (con spread)</div>
+          <div id="ts" class="muted"></div>
+        </div>
+        <div class="chip">Spread: <b id="spreadVal">8%</b></div>
+      </div>
+      <input id="spread" type="range" min="0" max="15" value="8" />
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="refresh">Actualizar tasa</button>
+        <select id="quick">
+          <option value="">Rango rápido</option>
+          <option value="6">6h</option>
+          <option value="12">12h</option>
+          <option value="24">24h</option>
+          <option value="72">72h</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <div class="muted">Comprar USDT (pagar VES)</div>
+        <div id="rateSell" class="big">—</div>
+      </div>
+      <div class="card">
+        <div class="muted">Vender USDT (recibir VES)</div>
+        <div id="rateBuy" class="big">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Monto a pagar con Stripe (USD)</label>
+      <input id="amount" type="number" min="10" step="1" value="50" />
+
+      <label>Tu wallet USDT para recibir</label>
+      <input id="wallet" type="text" placeholder="TU-ADDRESS (TRC20/ERC20)" />
+
+      <button id="checkout" style="margin-top:10px">Pagar y Comprar USDT</button>
+
+      <div id="msgOk" class="ok">Redirigiendo a Stripe…</div>
+      <div id="msgErr" class="err"></div>
+      <div class="muted" style="margin-top:8px">Pagos procesados por Stripe (modo prueba). Al finalizar verás la confirmación.</div>
+    </div>
+  </div>
+
+<script>
+  // ======= CONFIG =======
+  // CAMBIA esto por la URL de tu proyecto en Vercel:
+  const API_BASE = 'https://usdt-ves.vercel.app';
+  // ======================
+
+  const $ = (s)=>document.querySelector(s);
+  const fmtVES = new Intl.NumberFormat('es-CO', { style:'currency', currency:'VES', maximumFractionDigits:2 });
+  const fmtBogota = (d)=> new Date(d).toLocaleString('es-CO', { timeZone:'America/Bogota' });
+
+  let spread = 8;
+
+  async function loadRates(params = {}) {
+    try {
+      const url = new URL(`${API_BASE}/api/rates/public`);
+      url.searchParams.set('spread', spread);
+      // soporta rangos rápidos en back si decides usarlo más adelante
+      if (params.rangeH) url.searchParams.set('rangeH', params.rangeH);
+
+      const res = await fetch(url, { cache:'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'No hay tasa');
+
+      $('#rateSell').textContent = json?.executable?.sell ? `${fmtVES.format(json.executable.sell)} / USDT` : '—';
+      $('#rateBuy').textContent  = json?.executable?.buy  ? `${fmtVES.format(json.executable.buy)} / USDT` : '—';
+      $('#ts').textContent = json?.ts ? `Actualizado: ${fmtBogota(json.ts)}` : '';
+    } catch (e) {
+      showErr(e.message || 'Error al cargar tasas');
+    }
+  }
+
+  function showErr(msg) {
+    const el = $('#msgErr');
+    el.textContent = msg;
+    el.style.display = 'block';
+    $('#msgOk').style.display = 'none';
+  }
+  function showOk(msg) {
+    const el = $('#msgOk');
+    el.textContent = msg;
+    el.style.display = 'block';
+    $('#msgErr').style.display = 'none';
+  }
+
+  $('#spread').addEventListener('input', (e)=>{
+    spread = parseInt(e.target.value,10);
+    $('#spreadVal').textContent = `${spread}%`;
+  });
+  $('#refresh').addEventListener('click', ()=> loadRates());
+  $('#quick').addEventListener('change', (e)=>{
+    const v = e.target.value;
+    if (v) loadRates({ rangeH: v });
+  });
+
+  // validación simple de wallet (solo longitud básica)
+  function isWalletLike(s){ return typeof s === 'string' && s.trim().length >= 8; }
+
+  $('#checkout').addEventListener('click', async ()=>{
+    try {
+      const amount = parseFloat($('#amount').value || '50');
+      const wallet = $('#wallet').value.trim();
+
+      if (!amount || amount < 1) return showErr('Monto mínimo inválido');
+      if (!isWalletLike(wallet)) return showErr('Ingresa una wallet USDT válida');
+
+      showOk('Creando orden…');
+
+      const res = await fetch(`${API_BASE}/api/orders/create`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ amountFiat: amount, walletAddress: wallet, spreadPct: spread })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'No se pudo crear la orden');
+
+      if (json?.url) {
+        showOk('Redirigiendo a Stripe…');
+        window.location.href = json.url;
+      } else {
+        throw new Error('Respuesta inválida del servidor');
+      }
+    } catch (e) {
+      showErr(e.message || 'Error iniciando pago');
+    }
+  });
+
+  // cargar al entrar
+  loadRates();
+</script>
+</body>
+</html>

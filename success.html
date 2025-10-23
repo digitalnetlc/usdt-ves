@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pago completado</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;padding:24px}
+  .card{max-width:640px;margin:40px auto;border:1px solid #e5e7eb;border-radius:14px;padding:20px}
+  .ok{color:#0a7a35;font-weight:700}
+  a.btn{display:inline-block;margin-top:12px;padding:10px 14px;border-radius:10px;background:#111;color:#fff;text-decoration:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 class="ok">¡Pago completado!</h1>
+    <p>Tu compra ha sido confirmada por Stripe. Si dejaste una wallet USDT válida, procesaremos la entrega.</p>
+    <p id="order"></p>
+    <a class="btn" href="/">Volver al inicio</a>
+  </div>
+<script>
+  const q = (n)=>new URLSearchParams(location.search).get(n);
+  const id = q('order');
+  if (id) document.getElementById('order').textContent = 'ID de orden: ' + id;
+</script>
+</body>
+</html>
