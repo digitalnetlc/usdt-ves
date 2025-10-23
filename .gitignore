@@ -1,0 +1,19 @@
+# Archivos de WordPress que no se deben subir
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/backups/
+wp-content/upgrade/
+wp-content/ai1wm-backups/
+wp-content/advanced-cache.php
+
+# Archivos de XAMPP
+xampp/
+.htaccess
+*.log
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+node_modules/
+vendor/
