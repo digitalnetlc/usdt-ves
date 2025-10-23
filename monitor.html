@@ -11,8 +11,9 @@
   .wrap{max-width:980px;margin:32px auto;padding:0 16px}
   .title{color:#fff;margin:0 0 12px;font-size:26px;font-weight:700}
   .card{background:var(--card);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:16px;margin:12px 0}
-  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   button,select{padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+  button.active{background:#111;color:#fff}
   .chip{display:inline-flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:999px;padding:6px 10px;font-size:12px}
   .muted{color:var(--muted);font-size:12px}
   .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -20,7 +21,7 @@
   .kpi .v{font-size:18px;font-weight:700}
   canvas{width:100%;height:380px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{border-bottom:1px solid #eee;padding:8px;text-align:left}
+  th,td{border-bottom:1px solid #eee;padding:8px;text-align:left;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -69,10 +70,12 @@
     </div>
   </div>
 
-  <!-- Chart.js CDN -->
+  <!-- Chart.js + Adaptador de tiempo -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+
   <script>
-    // CAMBIA esto por la URL de tu API en Vercel:
+    // CAMBIA esto si tu proyecto en Vercel usa otro dominio:
     const API_BASE = 'https://usdt-ves.vercel.app';
 
     const fmtVES = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'VES', maximumFractionDigits: 2 });
@@ -88,22 +91,39 @@
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Error API');
 
-      const labels = json.data.map(x => new Date(x.t));
-      const sell = json.data.map(x => x.sell);
-      const buy  = json.data.map(x => x.buy);
-      const spr  = json.data.map(x => x.spread);
+      const rows = json.data || [];
+      if (!rows.length) {
+        drawChart([], [], []);
+        setKPIs(null);
+        fillTable([]);
+        document.getElementById('updated').textContent = '';
+        return;
+      }
 
-      // KPIs
-      const last = json.data[json.data.length - 1];
-      document.getElementById('kpiSell').textContent   = last?.sell ? fmtVES.format(last.sell) : '—';
-      document.getElementById('kpiBuy').textContent    = last?.buy  ? fmtVES.format(last.buy)  : '—';
-      document.getElementById('kpiSpread').textContent = last?.spread != null ? fmtNum.format(last.spread) : '—';
+      // {x,y} para timeseries
+      const pointsSell = rows.map(r => ({ x: new Date(r.t), y: r.sell }));
+      const pointsBuy  = rows.map(r => ({ x: new Date(r.t), y: r.buy  }));
+      const pointsSpr  = rows.map(r => ({ x: new Date(r.t), y: r.spread }));
+
+      // KPIs y tabla
+      const last = rows.at(-1);
+      setKPIs(last);
       document.getElementById('updated').textContent = last?.t ? `Actualizado: ${bogota(last.t)}` : '';
+      fillTable(rows);
 
-      // Tabla (últimos 20)
+      drawChart(pointsSell, pointsBuy, pointsSpr);
+    }
+
+    function setKPIs(last) {
+      document.getElementById('kpiSell').textContent   = last?.sell   ? fmtVES.format(last.sell)   : '—';
+      document.getElementById('kpiBuy').textContent    = last?.buy    ? fmtVES.format(last.buy)    : '—';
+      document.getElementById('kpiSpread').textContent = (last && last.spread!=null) ? fmtNum.format(last.spread) : '—';
+    }
+
+    function fillTable(rows) {
       const tbody = document.querySelector('#tbl tbody');
       tbody.innerHTML = '';
-      json.data.slice(-20).reverse().forEach(r=>{
+      rows.slice(-20).reverse().forEach(r=>{
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${bogota(r.t)}</td>
                         <td>${r.sell?fmtVES.format(r.sell):'—'}</td>
@@ -112,77 +132,56 @@
                         <td>${r.n??0}</td>`;
         tbody.appendChild(tr);
       });
+    }
 
-      // Chart
-      const dsSell = {
-        label: 'eff_sell (Compra USDT)',
-        data: sell,
-        yAxisID: 'y',
-        borderWidth: 2,
-        tension: .2
-      };
-      const dsBuy = {
-        label: 'eff_buy (Vende USDT)',
-        data: buy,
-        yAxisID: 'y',
-        borderWidth: 2,
-        borderDash: [4,4],
-        tension: .2
-      };
-      const dsSpread = {
-        label: 'spread',
-        data: spr,
-        yAxisID: 'y1',
-        borderWidth: 2,
-        tension: .2
-      };
-
+    function drawChart(pointsSell, pointsBuy, pointsSpr) {
       const cfg = {
         type: 'line',
-        data: { labels, datasets: [dsSell, dsBuy, dsSpread] },
+        data: {
+          datasets: [
+            { label:'eff_sell (Compra USDT)', data: pointsSell, yAxisID:'y', borderWidth:2, tension:.2 },
+            { label:'eff_buy  (Vende USDT)',  data: pointsBuy,  yAxisID:'y', borderWidth:2, borderDash:[4,4], tension:.2 },
+            { label:'spread',                  data: pointsSpr,  yAxisID:'y1', borderWidth:2, tension:.2 }
+          ]
+        },
         options: {
+          parsing: false,
           responsive: true,
-          interaction: { mode: 'index', intersect: false },
+          interaction: { mode:'index', intersect:false },
+          scales: {
+            x:  { type:'timeseries', time:{ unit: rangeH>=24 ? 'hour' : 'minute' } },
+            y:  { position:'left',  ticks:{ callback:v=> fmtVES.format(v) }},
+            y1: { position:'right', grid:{ drawOnChartArea:false }, ticks:{ callback:v=> fmtNum.format(v) }}
+          },
           plugins: {
-            legend: { position: 'top' },
+            legend: { position:'top' },
             tooltip: {
               callbacks: {
-                label: (ctx)=>{
-                  const v = ctx.parsed.y;
-                  if (ctx.dataset.yAxisID === 'y1') return ` ${ctx.dataset.label}: ${fmtNum.format(v)}`;
-                  return ` ${ctx.dataset.label}: ${fmtVES.format(v)}`;
-                },
-                title: (items)=>{
-                  const d = items[0].parsed.x;
-                  return new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-                }
+                title: (items)=> new Date(items[0].parsed.x).toLocaleString('es-CO',{ timeZone:'America/Bogota' }),
+                label: (ctx)=> ctx.dataset.yAxisID === 'y1'
+                  ? ` ${ctx.dataset.label}: ${fmtNum.format(ctx.parsed.y)}`
+                  : ` ${ctx.dataset.label}: ${fmtVES.format(ctx.parsed.y)}`
               }
             }
-          },
-          scales: {
-            x: { type: 'time', time: { unit: 'hour' } },
-            y:  { position: 'left', ticks: { callback: (v)=> fmtVES.format(v) } },
-            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: (v)=> fmtNum.format(v) } }
           }
         }
       };
-
-      // Chart.js necesita adaptador de tiempo; como atajo, usamos Date directamente (labels = Date)
-      if (chart) { chart.destroy(); }
+      if (chart) chart.destroy();
       chart = new Chart(document.getElementById('chart'), cfg);
     }
 
     // Rango rápido
     document.querySelectorAll('button[data-h]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
+        document.querySelectorAll('button[data-h]').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
         rangeH = Number(btn.dataset.h);
         fetchData();
       });
     });
 
-    fetchData(); // inicial
-    // Auto-refresh cada 60s
-    setInterval(fetchData, 60_000);
+    fetchData();              // inicial
+    setInterval(fetchData, 60_000); // auto-refresh 60s
   </script>
 </body>
 </html>
