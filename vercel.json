@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/p2p-sample",
+      "schedule": "* * * * *"
+    }
+  ]
+}
