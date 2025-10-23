@@ -1,8 +1,8 @@
 export default function Home() {
   return (
-    <main style={{padding:20,fontFamily:'system-ui'}}>
+    <main style={{ padding: 20 }}>
       <h1>Backend USDT/VES OK</h1>
-      <p>Endpoints listos en /api/rates/public y /api/orders/create (cuando los agregues).</p>
+      <p>Endpoints: /api/rates/public (test) • /api/orders/create • /api/stripe/webhook</p>
     </main>
   );
 }
