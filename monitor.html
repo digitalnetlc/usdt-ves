@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Monitor USDT ⇄ VES</title>
+<style>
+  :root { --bg:#0b0c10; --card:#ffffff; --muted:#6b7280; --text:#111; --brand:#111 }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:980px;margin:32px auto;padding:0 16px}
+  .title{color:#fff;margin:0 0 12px;font-size:26px;font-weight:700}
+  .card{background:var(--card);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:16px;margin:12px 0}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button,select{padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:999px;padding:6px 10px;font-size:12px}
+  .muted{color:var(--muted);font-size:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .kpi{background:#fafafa;border:1px solid #eee;border-radius:12px;padding:10px}
+  .kpi .v{font-size:18px;font-weight:700}
+  canvas{width:100%;height:380px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border-bottom:1px solid #eee;padding:8px;text-align:left}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Monitor USDT ⇄ VES</h1>
+
+    <div class="card">
+      <div class="controls">
+        <span class="chip">Rango rápido:</span>
+        <button data-h="6">6h</button>
+        <button data-h="12">12h</button>
+        <button data-h="24" class="active">24h</button>
+        <button data-h="72">72h</button>
+        <span class="chip">Hora: America/Bogota</span>
+        <span id="updated" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <div class="kpi">
+          <div class="muted">Último eff_sell (Compra USDT)</div>
+          <div id="kpiSell" class="v">—</div>
+        </div>
+        <div class="kpi">
+          <div class="muted">Último eff_buy (Vende USDT)</div>
+          <div id="kpiBuy" class="v">—</div>
+        </div>
+        <div class="kpi">
+          <div class="muted">Último spread</div>
+          <div id="kpiSpread" class="v">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px">Últimos 20 puntos</div>
+      <table id="tbl">
+        <thead><tr><th>Fecha (Bogotá)</th><th>eff_sell</th><th>eff_buy</th><th>spread</th><th>n</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script>
+    // CAMBIA esto por la URL de tu API en Vercel:
+    const API_BASE = 'https://usdt-ves.vercel.app';
+
+    const fmtVES = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'VES', maximumFractionDigits: 2 });
+    const fmtNum = new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 });
+    const bogota = (d)=> new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+
+    let rangeH = 24;
+    let chart;
+
+    async function fetchData() {
+      const url = `${API_BASE}/api/monitor?rangeH=${rangeH}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Error API');
+
+      const labels = json.data.map(x => new Date(x.t));
+      const sell = json.data.map(x => x.sell);
+      const buy  = json.data.map(x => x.buy);
+      const spr  = json.data.map(x => x.spread);
+
+      // KPIs
+      const last = json.data[json.data.length - 1];
+      document.getElementById('kpiSell').textContent   = last?.sell ? fmtVES.format(last.sell) : '—';
+      document.getElementById('kpiBuy').textContent    = last?.buy  ? fmtVES.format(last.buy)  : '—';
+      document.getElementById('kpiSpread').textContent = last?.spread != null ? fmtNum.format(last.spread) : '—';
+      document.getElementById('updated').textContent = last?.t ? `Actualizado: ${bogota(last.t)}` : '';
+
+      // Tabla (últimos 20)
+      const tbody = document.querySelector('#tbl tbody');
+      tbody.innerHTML = '';
+      json.data.slice(-20).reverse().forEach(r=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${bogota(r.t)}</td>
+                        <td>${r.sell?fmtVES.format(r.sell):'—'}</td>
+                        <td>${r.buy?fmtVES.format(r.buy):'—'}</td>
+                        <td>${r.spread!=null?fmtNum.format(r.spread):'—'}</td>
+                        <td>${r.n??0}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      // Chart
+      const dsSell = {
+        label: 'eff_sell (Compra USDT)',
+        data: sell,
+        yAxisID: 'y',
+        borderWidth: 2,
+        tension: .2
+      };
+      const dsBuy = {
+        label: 'eff_buy (Vende USDT)',
+        data: buy,
+        yAxisID: 'y',
+        borderWidth: 2,
+        borderDash: [4,4],
+        tension: .2
+      };
+      const dsSpread = {
+        label: 'spread',
+        data: spr,
+        yAxisID: 'y1',
+        borderWidth: 2,
+        tension: .2
+      };
+
+      const cfg = {
+        type: 'line',
+        data: { labels, datasets: [dsSell, dsBuy, dsSpread] },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top' },
+            tooltip: {
+              callbacks: {
+                label: (ctx)=>{
+                  const v = ctx.parsed.y;
+                  if (ctx.dataset.yAxisID === 'y1') return ` ${ctx.dataset.label}: ${fmtNum.format(v)}`;
+                  return ` ${ctx.dataset.label}: ${fmtVES.format(v)}`;
+                },
+                title: (items)=>{
+                  const d = items[0].parsed.x;
+                  return new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+                }
+              }
+            }
+          },
+          scales: {
+            x: { type: 'time', time: { unit: 'hour' } },
+            y:  { position: 'left', ticks: { callback: (v)=> fmtVES.format(v) } },
+            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: (v)=> fmtNum.format(v) } }
+          }
+        }
+      };
+
+      // Chart.js necesita adaptador de tiempo; como atajo, usamos Date directamente (labels = Date)
+      if (chart) { chart.destroy(); }
+      chart = new Chart(document.getElementById('chart'), cfg);
+    }
+
+    // Rango rápido
+    document.querySelectorAll('button[data-h]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        rangeH = Number(btn.dataset.h);
+        fetchData();
+      });
+    });
+
+    fetchData(); // inicial
+    // Auto-refresh cada 60s
+    setInterval(fetchData, 60_000);
+  </script>
+</body>
+</html>
