@@ -35,6 +35,7 @@
         <div class="grow">
           <div class="muted">Tasa vigente (con spread)</div>
           <div id="ts" class="muted"></div>
+          <div id="src" class="muted"></div>
         </div>
         <div class="chip">Spread: <b id="spreadVal">8%</b></div>
       </div>
@@ -79,8 +80,8 @@
 
 <script>
   // ======= CONFIG =======
-  // CAMBIA esto por la URL de tu proyecto en Vercel:
-  const API_BASE = 'https://usdt-ves.vercel.app';
+  // Usa mismo origen para evitar problemas de CORS.
+  const API_BASE = location.origin;
   // ======================
 
   const $ = (s)=>document.querySelector(s);
@@ -88,21 +89,25 @@
   const fmtBogota = (d)=> new Date(d).toLocaleString('es-CO', { timeZone:'America/Bogota' });
 
   let spread = 8;
+  let loadingCheckout = false;
 
   async function loadRates(params = {}) {
     try {
       const url = new URL(`${API_BASE}/api/rates/public`);
       url.searchParams.set('spread', spread);
-      // soporta rangos rápidos en back si decides usarlo más adelante
       if (params.rangeH) url.searchParams.set('rangeH', params.rangeH);
 
-      const res = await fetch(url, { cache:'no-store' });
+      const res = await fetch(url.toString(), { cache:'no-store' });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'No hay tasa');
 
       $('#rateSell').textContent = json?.executable?.sell ? `${fmtVES.format(json.executable.sell)} / USDT` : '—';
       $('#rateBuy').textContent  = json?.executable?.buy  ? `${fmtVES.format(json.executable.buy)} / USDT` : '—';
       $('#ts').textContent = json?.ts ? `Actualizado: ${fmtBogota(json.ts)}` : '';
+      $('#src').textContent = json?.source
+        ? `Fuente: ${json.source === 'binance_fallback' ? 'Binance (en vivo)' : 'Supabase'}`
+        : '';
+      hideErr();
     } catch (e) {
       showErr(e.message || 'Error al cargar tasas');
     }
@@ -113,6 +118,9 @@
     el.textContent = msg;
     el.style.display = 'block';
     $('#msgOk').style.display = 'none';
+  }
+  function hideErr() {
+    $('#msgErr').style.display = 'none';
   }
   function showOk(msg) {
     const el = $('#msgOk');
@@ -135,6 +143,7 @@
   function isWalletLike(s){ return typeof s === 'string' && s.trim().length >= 8; }
 
   $('#checkout').addEventListener('click', async ()=>{
+    if (loadingCheckout) return;
     try {
       const amount = parseFloat($('#amount').value || '50');
       const wallet = $('#wallet').value.trim();
@@ -142,9 +151,11 @@
       if (!amount || amount < 1) return showErr('Monto mínimo inválido');
       if (!isWalletLike(wallet)) return showErr('Ingresa una wallet USDT válida');
 
+      loadingCheckout = true;
+      $('#checkout').disabled = true;
       showOk('Creando orden…');
 
-      const res = await fetch(`${API_BASE}/api/orders/create`, {
+      const res = await fetch(`/api/orders/create`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ amountFiat: amount, walletAddress: wallet, spreadPct: spread })
@@ -154,12 +165,14 @@
 
       if (json?.url) {
         showOk('Redirigiendo a Stripe…');
-        window.location.href = json.url;
+        location.href = json.url;
       } else {
         throw new Error('Respuesta inválida del servidor');
       }
     } catch (e) {
       showErr(e.message || 'Error iniciando pago');
+      $('#checkout').disabled = false;
+      loadingCheckout = false;
     }
   });
 
