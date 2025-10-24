@@ -61,7 +61,7 @@ export async function GET(req) {
     // Protege tu cron (recomendado por Vercel)
     const auth = req.headers.get('authorization') || '';
     if (!CRON_SECRET || auth !== `Bearer ${CRON_SECRET}`) {
-      return NextResponse.json({ ok:false, error:'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ ok:true, error:'Unauthorized' }, { status: 401 });
     }
 
     // Despacho de tareas (todas dentro del mismo cron)
