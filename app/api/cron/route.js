@@ -31,47 +31,52 @@ async function p2pFetch(side) {
   return { n: prices.length, median: mid };
 }
 
-async function taskP2PSample() {
-  // BUY (usuario compra USDT) → referencia eff_sell
-  // SELL (usuario vende USDT) → referencia eff_buy
-  const [buy, sell] = await Promise.all([ p2pFetch('SELL'), p2pFetch('BUY') ]);
-  const eff_buy  = buy.median;
-  const eff_sell = sell.median;
-  const spread   = eff_sell - eff_buy;
-  const n        = Math.min(buy.n, sell.n);
-
+// app/api/cron/route.js (solo la parte de tarea)
+async function taskP2PSample({ bank = '', amountVES = 0 } = {}) {
+  const u = new URL(`${process.env.SITE_URL || 'https://usdt-ves.vercel.app'}/api/feeds/binance`);
+  if (bank) u.searchParams.set('bank', bank);
+  if (amountVES) u.searchParams.set('amountVES', String(amountVES));
+  const r = await fetch(u.toString(), { cache:'no-store' });
+  const j = await r.json();
+  if (!r.ok || !Number.isFinite(j?.eff_buy) || !Number.isFinite(j?.eff_sell)) {
+    throw new Error(j?.error || 'Feed vacío');
+  }
   const ins = await fetch(`${SB_URL}/rest/v1/p2p_monitor_samples?select=*`, {
     method:'POST',
-    headers:{ ...sbHeaders(), Prefer:'return=representation' },
-    body: JSON.stringify({ scope:'public', eff_buy, eff_sell, spread, n })
+    headers:{ ...sbHeaders(true), Prefer:'return=representation' },
+    body: JSON.stringify({
+      scope:'public',
+      eff_buy: j.eff_buy,
+      eff_sell: j.eff_sell,
+      spread: j.spread,
+      n: Math.min(j.n_buy||0, j.n_sell||0),
+      bank: (j?.params?.bank || '').toLowerCase() || null,
+      amount_ves: j?.params?.amountVES ?? null
+    })
   });
   if (!ins.ok) throw new Error(await ins.text());
   const [saved] = await ins.json();
   return { saved };
 }
 
-// Si luego quieres más tareas, créalas así:
-async function taskOtraCosa() {
-  // ... lo que toque ...
-  return { ok: true };
-}
-
 export async function GET(req) {
   try {
-    // Protege tu cron (recomendado por Vercel)
     const auth = req.headers.get('authorization') || '';
     if (!CRON_SECRET || auth !== `Bearer ${CRON_SECRET}`) {
-      return NextResponse.json({ ok:true, error:'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ ok:false, error:'Unauthorized' }, { status: 401 });
     }
 
-    // Despacho de tareas (todas dentro del mismo cron)
+    // Lee filtros opcionales del cron/Action: ?bank=banesco&amountVES=500000
+    const u = new URL(req.url);
+    const bank = (u.searchParams.get('bank') || '').toLowerCase();
+    const amountVES = Number(u.searchParams.get('amountVES') || '0') || 0;
+
     const results = {};
-    // Ejecuta en serie para ser amable con los límites
-    results.p2p = await taskP2PSample();
-    // results.otro = await taskOtraCosa();
+    results.p2p = await taskP2PSample({ bank, amountVES });
 
     return NextResponse.json({ ok:true, results, ts: new Date().toISOString() }, { headers:{ 'Cache-Control':'no-store' } });
   } catch (e) {
     return NextResponse.json({ ok:false, error:String(e?.message||e) }, { status: 500 });
   }
 }
+
