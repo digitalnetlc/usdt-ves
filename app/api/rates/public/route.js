@@ -1,10 +1,44 @@
-// app/api/rates/public/route.js (solo la parte de GET)
+// app/api/rates/public/route.js
+import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+export const revalidate = 0;              // evita revalidación estática
+export const dynamic = 'force-dynamic';   // fuerza ejecución en runtime
+
+const SB_URL = process.env.SUPABASE_URL;
+const SB_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
+const ALLOWED = (process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// ---- helpers
+function sbHeaders(json = false) {
+  const h = { apikey: SB_SERVICE_ROLE, Authorization: `Bearer ${SB_SERVICE_ROLE}` };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+function withCORS(req, res) {
+  const origin = req.headers.get('origin') ?? '';
+  if (ALLOWED.includes(origin)) {
+    res.headers.set('Access-Control-Allow-Origin', origin);
+    res.headers.set('Vary', 'Origin');
+  }
+  res.headers.set('Access-Control-Allow-Methods','GET,OPTIONS');
+  res.headers.set('Access-Control-Allow-Headers','Content-Type,Authorization');
+  return res;
+}
+export function OPTIONS(req) {
+  return withCORS(req, new NextResponse(null, { status: 204 }));
+}
+
+// --- GET principal
 export async function GET(req) {
   try {
     const url = new URL(req.url);
     const SITE = process.env.SITE_URL || 'https://usdt-ves.vercel.app';
 
-    // Spread
+    // Spread (query > BD > 8)
     let spread = Number(url.searchParams.get('spread') ?? NaN);
     if (!Number.isFinite(spread)) {
       try {
@@ -18,7 +52,7 @@ export async function GET(req) {
     const bank = (url.searchParams.get('bank') || '').toLowerCase();
     const amountVES = Number(url.searchParams.get('amountVES') || '0') || 0;
 
-    // Último punto (90 min) con filtros
+    // Último punto (90 min) desde la vista con filtros
     const since = new Date(Date.now() - 90*60*1000).toISOString();
     const q = new URL(`${SB_URL}/rest/v1/v_p2p_monitor_1m`);
     q.searchParams.set('select','t_min,eff_buy,eff_sell,spread,n,bank,amount_bucket');
@@ -48,7 +82,7 @@ export async function GET(req) {
       }
     } catch {}
 
-    // Fallback a tu propio feed con los mismos filtros
+    // Fallback a tu feed Binance con los mismos filtros
     if (!(Number.isFinite(baseBuy) && Number.isFinite(baseSell))) {
       const uf = new URL(`${SITE}/api/feeds/binance`);
       if (bank) uf.searchParams.set('bank', bank);
@@ -64,7 +98,7 @@ export async function GET(req) {
       ts = j.ts || new Date().toISOString();
       source = 'binance_fallback';
 
-      // Inserta para que quede histórico en la vista
+      // Inserta muestra para histórico
       try {
         await fetch(`${SB_URL}/rest/v1/p2p_monitor_samples?select=*`, {
           method:'POST',

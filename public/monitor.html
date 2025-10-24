@@ -5,23 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Monitor USDT ⇄ VES</title>
 <style>
-  :root { --bg:#0b0c10; --card:#ffffff; --muted:#6b7280; --text:#111; --brand:#111 }
+  :root {
+    --bg:#0b0c10; --card:#0f1115; --muted:#9aa4b2; --text:#e6e8eb; --accent:#4ade80; --warn:#f59e0b; --danger:#ef4444;
+    --line1:#60a5fa; --line2:#f472b6; --line3:#fbbf24;
+  }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
-  .wrap{max-width:980px;margin:32px auto;padding:0 16px}
-  .title{color:#fff;margin:0 0 12px;font-size:26px;font-weight:700}
-  .card{background:var(--card);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:16px;margin:12px 0}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  button,select{padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
-  button.active{background:#111;color:#fff}
-  .chip{display:inline-flex;align-items:center;gap:8px;background:#f5f5f5;border-radius:999px;padding:6px 10px;font-size:12px}
-  .muted{color:var(--muted);font-size:12px}
-  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-  .kpi{background:#fafafa;border:1px solid #eee;border-radius:12px;padding:10px}
-  .kpi .v{font-size:18px;font-weight:700}
-  canvas{width:100%;height:380px}
+  .wrap{max-width:1200px;margin:28px auto;padding:0 16px}
+  .title{margin:0 0 14px;font-size:32px;font-weight:800;letter-spacing:.2px}
+  .row{display:grid;gap:12px}
+  @media(min-width:900px){ .row.cols-3{grid-template-columns:2fr 1fr 1fr} .row.cols-2{grid-template-columns:1fr 1fr} }
+  .card{background:var(--card);border:1px solid #1f2430;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:14px}
+  .muted{color:var(--muted)}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:#121722;border:1px solid #1f2430;border-radius:999px;padding:8px 12px;font-size:12px}
+  .btn{background:#1a1f2b;border:1px solid #2a3140;color:#fff;padding:10px 14px;border-radius:12px;cursor:pointer}
+  .btn.active{background:#2563eb;border-color:#2563eb}
+  .btn.secondary{background:#11151f}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  select,input{background:#0c1018;color:#e6e8eb;border:1px solid #2a3140;border-radius:10px;padding:10px 12px}
+  input[type="number"]{width:130px}
+  .kpi{background:#0c1018;border:1px solid #202532;border-radius:14px;padding:12px}
+  .kpi .lab{color:var(--muted);font-size:12px}
+  .kpi .val{font-size:22px;font-weight:800;margin-top:2px}
+  .kpi .trend.up{color:var(--accent)} .kpi .trend.down{color:var(--danger)}
+  canvas{width:100%;height:440px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{border-bottom:1px solid #eee;padding:8px;text-align:left;white-space:nowrap}
+  th,td{border-bottom:1px solid #1f2430;padding:8px 6px;text-align:right;white-space:nowrap}
+  th:first-child, td:first-child{text-align:left}
+  .err{background:#2a0f11;border:1px solid #471316;color:#ffc9c9;padding:10px;border-radius:10px;display:none}
+  .ok{background:#0e2a1a;border:1px solid #124229;color:#c1ffd7;padding:10px;border-radius:10px;display:none}
+  .legend-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:baseline}
+  .right{margin-left:auto}
+  a.link{color:#9cc0ff;text-decoration:none}
 </style>
 </head>
 <body>
@@ -31,134 +47,243 @@
     <div class="card">
       <div class="controls">
         <span class="chip">Rango rápido:</span>
-        <button data-h="6">6h</button>
-        <button data-h="12">12h</button>
-        <button data-h="24" class="active">24h</button>
-        <button data-h="72">72h</button>
-        <span class="chip">Hora: America/Bogota</span>
+        <button class="btn active" data-h="6">6h</button>
+        <button class="btn" data-h="12">12h</button>
+        <button class="btn" data-h="24">24h</button>
+        <button class="btn" data-h="72">72h</button>
+
+        <span class="chip">Banco:</span>
+        <select id="bank">
+          <option value="">Todos</option>
+          <option>banesco</option><option>mercantil</option><option>provincial</option>
+          <option>venezuela</option><option>pago movil</option><option>bnb</option><option>bod</option>
+        </select>
+
+        <span class="chip">Monto (VES) para rango:</span>
+        <input id="amountVES" type="number" min="0" step="1000" placeholder="0 (cualquiera)" />
+
+        <button id="apply" class="btn">Aplicar</button>
+        <button id="export" class="btn secondary">Exportar CSV</button>
+        <button id="share"  class="btn secondary">Compartir URL</button>
+
+        <span class="chip right">Hora: America/Bogota</span>
         <span id="updated" class="muted"></span>
       </div>
     </div>
 
     <div class="card">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <div><span class="legend-dot" style="background:var(--line1)"></span> <span class="muted">eff_sell (Compra USDT)</span></div>
+        <div><span class="legend-dot" style="background:var(--line2)"></span> <span class="muted">eff_buy (Vende USDT)</span></div>
+        <div><span class="legend-dot" style="background:var(--line3)"></span> <span class="muted">spread</span></div>
+        <label class="chip right">
+          <input id="auto" type="checkbox" style="vertical-align:middle;margin-right:8px"> Auto-refresh
+        </label>
+        <select id="every" title="Cada" style="width:110px">
+          <option value="30">30 s</option>
+          <option value="60" selected>60 s</option>
+          <option value="120">120 s</option>
+        </select>
+      </div>
       <canvas id="chart"></canvas>
     </div>
 
-    <div class="card">
-      <div class="grid">
-        <div class="kpi">
-          <div class="muted">Último eff_sell (Compra USDT)</div>
-          <div id="kpiSell" class="v">—</div>
-        </div>
-        <div class="kpi">
-          <div class="muted">Último eff_buy (Vende USDT)</div>
-          <div id="kpiBuy" class="v">—</div>
-        </div>
-        <div class="kpi">
-          <div class="muted">Último spread</div>
-          <div id="kpiSpread" class="v">—</div>
-        </div>
+    <div class="row cols-3">
+      <div class="card kpi">
+        <div class="lab">Último eff_sell (Compra USDT)</div>
+        <div class="val" id="kpiSell">—</div>
+        <div class="trend" id="kpiSellTrend"></div>
+      </div>
+      <div class="card kpi">
+        <div class="lab">Último eff_buy (Vende USDT)</div>
+        <div class="val" id="kpiBuy">—</div>
+        <div class="trend" id="kpiBuyTrend"></div>
+      </div>
+      <div class="card kpi">
+        <div class="lab">Último spread</div>
+        <div class="val" id="kpiSpread">—</div>
+        <div class="trend" id="kpiSpreadTrend"></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="muted" style="margin-bottom:8px">Últimos 20 puntos</div>
+      <div class="muted" style="margin-bottom:8px">Últimos 50 puntos</div>
+      <div id="msgErr" class="err"></div>
       <table id="tbl">
-        <thead><tr><th>Fecha (Bogotá)</th><th>eff_sell</th><th>eff_buy</th><th>spread</th><th>n</th></tr></thead>
+        <thead>
+          <tr><th>Fecha (Bogotá)</th><th>eff_sell</th><th>eff_buy</th><th>spread</th><th>n</th></tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
+
   </div>
 
-  <!-- Chart.js + Adaptador de tiempo -->
+  <!-- Chart.js + time adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
-
   <script>
-    // CAMBIA esto si tu proyecto en Vercel usa otro dominio:
-    const API_BASE = 'https://usdt-ves.vercel.app';
+    // ===== Config =====
+    const API_BASE = 'https://usdt-ves.vercel.app'; // <-- ajusta si usas otro dominio
 
-    const fmtVES = new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'VES', maximumFractionDigits: 2 });
-    const fmtNum = new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 });
-    const bogota = (d)=> new Date(d).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+    // ===== Utils =====
+    const $ = (s)=>document.querySelector(s);
+    const bogota = (d)=> new Date(d).toLocaleString('es-CO',{ timeZone:'America/Bogota' });
+    const fmtVES = new Intl.NumberFormat('es-VE',{ style:'currency', currency:'VES', maximumFractionDigits:2 });
+    const fmtNum = new Intl.NumberFormat('es-VE',{ maximumFractionDigits:2 });
 
-    let rangeH = 24;
-    let chart;
+    // Lee parámetros de la URL para compartir filtros
+    const qp = new URLSearchParams(location.search);
+    let rangeH    = Number(qp.get('h') || 6);
+    let bank      = (qp.get('bank') || '').toLowerCase();
+    let amountVES = Number(qp.get('amountVES') || 0) || 0;
 
-    async function fetchData() {
-      const url = `${API_BASE}/api/monitor?rangeH=${rangeH}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Error API');
+    // Estado
+    let chart, timer=null, lastRow=null, rowsCache=[];
 
-      const rows = json.data || [];
-      if (!rows.length) {
-        drawChart([], [], []);
-        setKPIs(null);
-        fillTable([]);
-        document.getElementById('updated').textContent = '';
-        return;
+    // ===== UI inicial =====
+    document.querySelectorAll('.btn[data-h]').forEach(b=>{
+      b.classList.toggle('active', Number(b.dataset.h)===rangeH);
+      b.addEventListener('click', ()=>{
+        document.querySelectorAll('.btn[data-h]').forEach(x=>x.classList.remove('active'));
+        b.classList.add('active');
+        rangeH = Number(b.dataset.h);
+        pushQuery();
+        fetchData();
+      });
+    });
+    if (bank) $('#bank').value = bank;
+    if (amountVES) $('#amountVES').value = amountVES;
+
+    $('#apply').addEventListener('click', ()=>{
+      bank = ($('#bank').value||'').toLowerCase();
+      amountVES = Number($('#amountVES').value || 0) || 0;
+      pushQuery();
+      fetchData();
+    });
+
+    $('#export').addEventListener('click', exportCSV);
+    $('#share').addEventListener('click', ()=>{
+      navigator.clipboard.writeText(location.href).then(()=> alert('URL copiada ✅'));
+    });
+
+    $('#auto').addEventListener('change', syncTimer);
+    $('#every').addEventListener('change', syncTimer);
+
+    function pushQuery(){
+      const qs = new URLSearchParams();
+      qs.set('h', String(rangeH));
+      if (bank) qs.set('bank', bank); else qs.delete('bank');
+      if (amountVES) qs.set('amountVES', String(amountVES)); else qs.delete('amountVES');
+      history.replaceState({}, '', `${location.pathname}?${qs.toString()}`);
+    }
+    function syncTimer(){
+      if (timer) { clearInterval(timer); timer=null; }
+      if ($('#auto').checked){
+        const ms = Number($('#every').value||'60')*1000;
+        timer = setInterval(fetchData, ms);
       }
+    }
 
-      // {x,y} para timeseries
+    // ===== Datos / API =====
+    async function fetchData(){
+      try{
+        showErr('');
+        const url = new URL(`${API_BASE}/api/monitor`);
+        url.searchParams.set('rangeH', String(rangeH));
+        if (bank) url.searchParams.set('bank', bank);
+        if (amountVES) url.searchParams.set('amountVES', String(amountVES));
+
+        const res = await fetch(url, { cache:'no-store' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || 'Error API');
+
+        const rows = json?.data || [];
+        rowsCache = rows;
+
+        drawAll(rows);
+      }catch(e){
+        showErr(e.message || 'Error al cargar datos');
+      }
+    }
+
+    // ===== Render =====
+    function drawAll(rows){
+      // KPI & tabla
+      fillTable(rows);
+      const last = rows.at(-1) || null;
+      setKPIs(last, lastRow);
+      lastRow = last;
+
+      // Chart series
       const pointsSell = rows.map(r => ({ x: new Date(r.t), y: r.sell }));
       const pointsBuy  = rows.map(r => ({ x: new Date(r.t), y: r.buy  }));
       const pointsSpr  = rows.map(r => ({ x: new Date(r.t), y: r.spread }));
 
-      // KPIs y tabla
-      const last = rows.at(-1);
-      setKPIs(last);
-      document.getElementById('updated').textContent = last?.t ? `Actualizado: ${bogota(last.t)}` : '';
-      fillTable(rows);
+      $('#updated').textContent = last?.t ? `Actualizado: ${bogota(last.t)}` : '';
 
       drawChart(pointsSell, pointsBuy, pointsSpr);
     }
 
-    function setKPIs(last) {
-      document.getElementById('kpiSell').textContent   = last?.sell   ? fmtVES.format(last.sell)   : '—';
-      document.getElementById('kpiBuy').textContent    = last?.buy    ? fmtVES.format(last.buy)    : '—';
-      document.getElementById('kpiSpread').textContent = (last && last.spread!=null) ? fmtNum.format(last.spread) : '—';
+    function setKPIs(curr, prev){
+      const set = (id,val)=> { $(id).textContent = val; };
+      const trend = (id, now, before)=>{
+        const el = $(id);
+        el.textContent = '';
+        el.className = 'trend';
+        if (now==null || before==null) return;
+        const d = now-before;
+        el.textContent = (d>=0? '▲':'▼')+' '+fmtNum.format(Math.abs(d));
+        el.classList.add(d>=0?'up':'down');
+      };
+
+      set('#kpiSell',   curr?.sell!=null ? fmtVES.format(curr.sell) : '—');
+      set('#kpiBuy',    curr?.buy!=null  ? fmtVES.format(curr.buy)  : '—');
+      set('#kpiSpread', curr?.spread!=null? fmtNum.format(curr.spread): '—');
+
+      trend('#kpiSellTrend',   curr?.sell,   prev?.sell);
+      trend('#kpiBuyTrend',    curr?.buy,    prev?.buy);
+      trend('#kpiSpreadTrend', curr?.spread, prev?.spread);
     }
 
-    function fillTable(rows) {
-      const tbody = document.querySelector('#tbl tbody');
-      tbody.innerHTML = '';
-      rows.slice(-20).reverse().forEach(r=>{
+    function fillTable(rows){
+      const tb = $('#tbl tbody');
+      tb.innerHTML = '';
+      rows.slice(-50).reverse().forEach(r=>{
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${bogota(r.t)}</td>
-                        <td>${r.sell?fmtVES.format(r.sell):'—'}</td>
-                        <td>${r.buy?fmtVES.format(r.buy):'—'}</td>
+                        <td>${r.sell!=null?fmtVES.format(r.sell):'—'}</td>
+                        <td>${r.buy!=null?fmtVES.format(r.buy):'—'}</td>
                         <td>${r.spread!=null?fmtNum.format(r.spread):'—'}</td>
                         <td>${r.n??0}</td>`;
-        tbody.appendChild(tr);
+        tb.appendChild(tr);
       });
     }
 
-    function drawChart(pointsSell, pointsBuy, pointsSpr) {
+    function drawChart(pointsSell, pointsBuy, pointsSpr){
       const cfg = {
-        type: 'line',
-        data: {
-          datasets: [
-            { label:'eff_sell (Compra USDT)', data: pointsSell, yAxisID:'y', borderWidth:2, tension:.2 },
-            { label:'eff_buy  (Vende USDT)',  data: pointsBuy,  yAxisID:'y', borderWidth:2, borderDash:[4,4], tension:.2 },
-            { label:'spread',                  data: pointsSpr,  yAxisID:'y1', borderWidth:2, tension:.2 }
-          ]
-        },
-        options: {
-          parsing: false,
-          responsive: true,
-          interaction: { mode:'index', intersect:false },
-          scales: {
-            x:  { type:'timeseries', time:{ unit: rangeH>=24 ? 'hour' : 'minute' } },
-            y:  { position:'left',  ticks:{ callback:v=> fmtVES.format(v) }},
-            y1: { position:'right', grid:{ drawOnChartArea:false }, ticks:{ callback:v=> fmtNum.format(v) }}
+        type:'line',
+        data:{ datasets:[
+          { label:'eff_sell (Compra USDT)', data:pointsSell, yAxisID:'y', borderWidth:2, tension:.2, borderColor:getCSS('--line1'), pointRadius:0 },
+          { label:'eff_buy (Vende USDT)',  data:pointsBuy,  yAxisID:'y', borderWidth:2, tension:.2, borderDash:[4,4], borderColor:getCSS('--line2'), pointRadius:0 },
+          { label:'spread',                data:pointsSpr,  yAxisID:'y1',borderWidth:2, tension:.2, borderColor:getCSS('--line3'), pointRadius:0 }
+        ]},
+        options:{
+          parsing:false,
+          responsive:true,
+          maintainAspectRatio:false,
+          interaction:{ mode:'index', intersect:false },
+          scales:{
+            x:{ type:'timeseries', time:{ unit: rangeH>=24?'hour':'minute' }, grid:{ color:'#1f2430' } },
+            y:{ position:'left', ticks:{ callback:v=> fmtVES.format(v) }, grid:{ color:'#1f2430' } },
+            y1:{ position:'right', grid:{ drawOnChartArea:false, color:'#1f2430' }, ticks:{ callback:v=> fmtNum.format(v) } }
           },
-          plugins: {
-            legend: { position:'top' },
-            tooltip: {
-              callbacks: {
-                title: (items)=> new Date(items[0].parsed.x).toLocaleString('es-CO',{ timeZone:'America/Bogota' }),
-                label: (ctx)=> ctx.dataset.yAxisID === 'y1'
+          plugins:{
+            legend:{ labels:{ color:'#dfe5ee' } },
+            tooltip:{
+              callbacks:{
+                title:(items)=> new Date(items[0].parsed.x).toLocaleString('es-CO',{ timeZone:'America/Bogota' }),
+                label:(ctx)=> ctx.dataset.yAxisID==='y1'
                   ? ` ${ctx.dataset.label}: ${fmtNum.format(ctx.parsed.y)}`
                   : ` ${ctx.dataset.label}: ${fmtVES.format(ctx.parsed.y)}`
               }
@@ -167,21 +292,26 @@
         }
       };
       if (chart) chart.destroy();
-      chart = new Chart(document.getElementById('chart'), cfg);
+      chart = new Chart($('#chart'), cfg);
     }
 
-    // Rango rápido
-    document.querySelectorAll('button[data-h]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        document.querySelectorAll('button[data-h]').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        rangeH = Number(btn.dataset.h);
-        fetchData();
-      });
-    });
+    function exportCSV(){
+      if (!rowsCache.length) return alert('No hay datos');
+      const header = ['ts_iso','eff_sell','eff_buy','spread','n'];
+      const lines = rowsCache.map(r => [r.t, r.sell ?? '', r.buy ?? '', r.spread ?? '', r.n ?? ''].join(','));
+      const blob = new Blob([header.join(',')+'\n'+lines.join('\n')], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'monitor_usdt_ves.csv'; a.click();
+      setTimeout(()=> URL.revokeObjectURL(url), 1000);
+    }
 
-    fetchData();              // inicial
-    setInterval(fetchData, 60_000); // auto-refresh 60s
+    function showErr(msg){ const e=$('#msgErr'); e.textContent=msg||''; e.style.display=msg?'block':'none'; }
+    function getCSS(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+    // ===== Go! =====
+    fetchData();
+    syncTimer();
   </script>
 </body>
 </html>
