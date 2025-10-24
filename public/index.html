@@ -80,37 +80,65 @@
 
 <script>
   // ======= CONFIG =======
-  // Usa mismo origen para evitar problemas de CORS.
-  const API_BASE = location.origin;
+  const API_BASE = 'https://usdt-ves.vercel.app';
   // ======================
 
   const $ = (s)=>document.querySelector(s);
-  const fmtVES = new Intl.NumberFormat('es-CO', { style:'currency', currency:'VES', maximumFractionDigits:2 });
+  const fmtVES = new Intl.NumberFormat('es-VE', { style:'currency', currency:'VES', maximumFractionDigits:2 });
   const fmtBogota = (d)=> new Date(d).toLocaleString('es-CO', { timeZone:'America/Bogota' });
 
   let spread = 8;
-  let loadingCheckout = false;
 
   async function loadRates(params = {}) {
     try {
+      // 1) intenta primero tu agregado (v_p2p_monitor_1m)
       const url = new URL(`${API_BASE}/api/rates/public`);
       url.searchParams.set('spread', spread);
-      if (params.rangeH) url.searchParams.set('rangeH', params.rangeH);
-
-      const res = await fetch(url.toString(), { cache:'no-store' });
+      const res = await fetch(url, { cache:'no-store' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'No hay tasa');
 
-      $('#rateSell').textContent = json?.executable?.sell ? `${fmtVES.format(json.executable.sell)} / USDT` : '—';
-      $('#rateBuy').textContent  = json?.executable?.buy  ? `${fmtVES.format(json.executable.buy)} / USDT` : '—';
-      $('#ts').textContent = json?.ts ? `Actualizado: ${fmtBogota(json.ts)}` : '';
-      $('#src').textContent = json?.source
-        ? `Fuente: ${json.source === 'binance_fallback' ? 'Binance (en vivo)' : 'Supabase'}`
-        : '';
-      hideErr();
+      if (res.ok && json?.executable?.sell && json?.executable?.buy) {
+        paintRates(json.ts, json.executable.sell, json.executable.buy);
+        return;
+      }
+
+      // 2) Fallback: feed vivo de Binance con filtros
+      //    - Si quieres filtrar por banco y/o monto VES, añade inputs en el form y léelos aquí.
+      //    Por ahora usamos el monto que el cliente piensa pagar (USD) para pasar un "amountVES aproximado"
+      //    calculado con la última tasa conocida del agregado o un guess.
+      let amountVES = null;
+      const amountUSD = parseFloat($('#amount').value || '0');
+      if (Number.isFinite(amountUSD) && amountUSD > 0 && json?.executable?.sell) {
+        amountVES = Math.round(amountUSD * json.executable.sell);
+      }
+
+      const url2 = new URL(`${API_BASE}/api/feeds/binance`);
+      url2.searchParams.set('side','both');
+      if (amountVES) url2.searchParams.set('amountVES', String(amountVES));
+      // Si agregas un selector de banco: url2.searchParams.set('bank', $('#bank').value);
+
+      const r2 = await fetch(url2, { cache:'no-store' });
+      const j2 = await r2.json();
+      if (!r2.ok) throw new Error(j2?.error || 'Feed Binance no disponible');
+
+      const k = 1 + spread/100;
+      const execSell = j2.eff_sell!=null ? j2.eff_sell * k : null;
+      const execBuy  = j2.eff_buy !=null ? j2.eff_buy  / k : null;
+
+      if (execSell && execBuy) {
+        paintRates(j2.ts, execSell, execBuy);
+      } else {
+        throw new Error('Sin precios suficientes para calcular');
+      }
     } catch (e) {
       showErr(e.message || 'Error al cargar tasas');
     }
+  }
+
+  function paintRates(ts, execSell, execBuy){
+    $('#rateSell').textContent = execSell ? `${fmtVES.format(execSell)} / USDT` : '—';
+    $('#rateBuy').textContent  = execBuy  ? `${fmtVES.format(execBuy)} / USDT`  : '—';
+    $('#ts').textContent = ts ? `Actualizado: ${fmtBogota(ts)}` : '';
   }
 
   function showErr(msg) {
@@ -118,9 +146,6 @@
     el.textContent = msg;
     el.style.display = 'block';
     $('#msgOk').style.display = 'none';
-  }
-  function hideErr() {
-    $('#msgErr').style.display = 'none';
   }
   function showOk(msg) {
     const el = $('#msgOk');
@@ -139,11 +164,9 @@
     if (v) loadRates({ rangeH: v });
   });
 
-  // validación simple de wallet (solo longitud básica)
   function isWalletLike(s){ return typeof s === 'string' && s.trim().length >= 8; }
 
   $('#checkout').addEventListener('click', async ()=>{
-    if (loadingCheckout) return;
     try {
       const amount = parseFloat($('#amount').value || '50');
       const wallet = $('#wallet').value.trim();
@@ -151,11 +174,9 @@
       if (!amount || amount < 1) return showErr('Monto mínimo inválido');
       if (!isWalletLike(wallet)) return showErr('Ingresa una wallet USDT válida');
 
-      loadingCheckout = true;
-      $('#checkout').disabled = true;
       showOk('Creando orden…');
 
-      const res = await fetch(`/api/orders/create`, {
+      const res = await fetch(`${API_BASE}/api/orders/create`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ amountFiat: amount, walletAddress: wallet, spreadPct: spread })
@@ -165,19 +186,17 @@
 
       if (json?.url) {
         showOk('Redirigiendo a Stripe…');
-        location.href = json.url;
+        window.location.href = json.url;
       } else {
         throw new Error('Respuesta inválida del servidor');
       }
     } catch (e) {
       showErr(e.message || 'Error iniciando pago');
-      $('#checkout').disabled = false;
-      loadingCheckout = false;
     }
   });
 
-  // cargar al entrar
-  loadRates();
+  loadRates(); // al entrar
 </script>
+
 </body>
 </html>
