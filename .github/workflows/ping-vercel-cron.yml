@@ -1,0 +1,32 @@
+name: ping-vercel-cron
+
+on:
+  schedule:
+    # ⚠️ Horario en UTC. "*/5 * * * *" = cada 5 minutos.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}  # permite ejecutarlo manualmente desde "Actions"
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # evita solapamientos si un job tarda más de 5 min
+    concurrency:
+      group: ping-vercel-cron
+      cancel-in-progress: true
+    steps:
+      - name: Hit Vercel cron endpoint
+        run: |
+          set -euo pipefail
+          # Pequeño retry para tolerar intermitencias de red
+          for i in 1 2 3; do
+            echo "Attempt $i..."
+            curl -sS -m 30 --fail-with-body \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$VERCEL_CRON_URL" && break
+            sleep 5
+          done
+        env:
+          # Guarda estos en GitHub → Settings → Secrets and variables → Actions → Secrets
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Puedes guardar también la URL como secret o variable:
+          VERCEL_CRON_URL: ${{ secrets.VERCEL_CRON_URL }}
