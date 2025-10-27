@@ -124,7 +124,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
   <script>
     // ===== Config =====
-    const API_BASE = 'https://usdt-ves.vercel.app'; // <-- ajusta si usas otro dominio
+    // Usa el mismo dominio del sitio (evita CORS y hardcode)
+    const API_BASE = window.location.origin;
 
     // ===== Utils =====
     const $ = (s)=>document.querySelector(s);
@@ -196,7 +197,7 @@
 
         const res = await fetch(url, { cache:'no-store' });
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || 'Error API');
+        if (!res.ok || !json.ok) throw new Error(json?.error || 'Error API');
 
         const rows = json?.data || [];
         rowsCache = rows;
