@@ -63,7 +63,13 @@ export const GET = withCORS(async (req) => {
     const amountVES = sp.get('amountVES') ? Number(sp.get('amountVES')) : undefined;
 
     // Construye query a la vista en Supabase
-    const sbUrl = new URL(`${process.env.SUPABASE_REST_URL}/v_p2p_monitor_1m`);
+    const base = (process.env.SUPABASE_REST_URL || '').trim();
+    if (!base || !/^https?:\/\//i.test(base)) {
+      return json({ ok: false, error: 'missing_env_SUPABASE_REST_URL', got: base }, 500);
+    }
+    // Usa new URL(path, base) para evitar "Invalid URL"
+    const sbUrl = new URL('/v_p2p_monitor_1m', base);
+
     sbUrl.searchParams.set('order', 't_min.asc');
     sbUrl.searchParams.set('select', 't_min,eff_buy,eff_sell,spread,bank,amount_bucket');
 
@@ -108,7 +114,10 @@ export const GET = withCORS(async (req) => {
 
     // Si no hay datos, intentar un fallback desde el feed actual
     if (!Array.isArray(data) || data.length === 0) {
-      const feedUrl = `${url.origin}/api/feeds/binance`;
+      const origin = url.origin || (process.env.NEXT_PUBLIC_SITE_ORIGIN || '').trim();
+      if (!origin) return json({ ok: false, error: 'missing_origin' }, 500);
+      const feedUrl = `${origin}/api/feeds/binance`;
+
       const fr = await fetch(feedUrl, { cache: 'no-store' });
       const fct = fr.headers.get('content-type') || '';
       if (!fr.ok || !fct.includes('application/json')) {

@@ -48,8 +48,13 @@ async function handler(req) {
       ? Number(searchParams.get('amountVES'))
       : undefined;
 
-    // 1) Intenta tu vista agregada
-    const q = new URL(`${process.env.SUPABASE_REST_URL}/v_latest_rate`);
+    // 1) Intenta tu vista agregada (Supabase)
+    const base = (process.env.SUPABASE_REST_URL || '').trim();
+    if (!base || !/^https?:\/\//i.test(base)) {
+      return json({ error: 'missing_env_SUPABASE_REST_URL', got: base }, 500);
+    }
+    const q = new URL('/v_latest_rate', base);
+
     if (bank) q.searchParams.set('bank', `eq.${bank}`);
     if (amountVES) {
       const b =
@@ -75,11 +80,7 @@ async function handler(req) {
       cache: 'no-store',
     });
 
-    if (!r1.ok) {
-      const body = await r1.text();
-      // sigue al fallback, pero adjunta razón en debug
-      // console.warn('supabase latest_rate', r1.status, body);
-    } else {
+    if (r1.ok) {
       const arr = await r1.json();
       if (Array.isArray(arr) && arr.length) {
         const { eff_buy, eff_sell, ts } = arr[0];
@@ -97,11 +98,13 @@ async function handler(req) {
         }
       }
     }
+    // Si falla o viene vacío, se va a fallback
 
-    // 2) Fallback: llama a tu feed de Binance interno
-    const r2 = await fetch(new URL(req.url).origin + '/api/feeds/binance', {
-      cache: 'no-store',
-    });
+    // 2) Fallback: llama al feed interno de Binance
+    const origin = new URL(req.url).origin || (process.env.NEXT_PUBLIC_SITE_ORIGIN || '').trim();
+    if (!origin) return json({ error: 'missing_origin' }, 500);
+
+    const r2 = await fetch(`${origin}/api/feeds/binance`, { cache: 'no-store' });
     const ct = r2.headers.get('content-type') || '';
     if (!r2.ok) {
       const body = await r2.text();
@@ -115,6 +118,7 @@ async function handler(req) {
     if (!feed || !feed.eff_buy || !feed.eff_sell) {
       return json({ error: 'feed_binance_empty', feed }, 502);
     }
+
     return json({
       source: 'binance',
       executable: {
