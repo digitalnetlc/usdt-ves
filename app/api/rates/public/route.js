@@ -1,127 +1,133 @@
 // app/api/rates/public/route.js
-import { NextResponse } from 'next/server';
-
 export const runtime = 'nodejs';
-export const revalidate = 0;
-export const dynamic = 'force-dynamic';
 
-const SB_URL = process.env.SUPABASE_URL;
-const SB_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
-const ALLOWED = (process.env.CORS_ORIGIN ?? '').split(',').map(s=>s.trim()).filter(Boolean);
-
-function sbHeaders(json = false) {
-  const h = { apikey: SB_SERVICE_ROLE, Authorization: `Bearer ${SB_SERVICE_ROLE}` };
-  if (json) h['Content-Type'] = 'application/json';
-  return h;
+function json(data, status = 200, extra = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      ...extra,
+    },
+  });
 }
-function withCORS(req, res) {
-  const origin = req.headers.get('origin') ?? '';
-  if (ALLOWED.includes(origin)) {
-    res.headers.set('Access-Control-Allow-Origin', origin);
-    res.headers.set('Vary', 'Origin');
-  }
-  res.headers.set('Access-Control-Allow-Methods','GET,OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers','Content-Type,Authorization');
-  return res;
-}
-export function OPTIONS(req) { return withCORS(req, new NextResponse(null, { status: 204 })); }
 
-export async function GET(req) {
-  try {
-    const url = new URL(req.url);
-    const SITE = process.env.SITE_URL || 'https://usdt-ves.vercel.app';
+const ALLOWED = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
-    // spread: query > BD > 8
-    let spread = Number(url.searchParams.get('spread') ?? NaN);
-    if (!Number.isFinite(spread)) {
-      try {
-        const r = await fetch(`${SB_URL}/rest/v1/rates_config?id=eq.true&select=spread`, { headers: sbHeaders() });
-        if (r.ok) { const [row] = await r.json(); if (row?.spread != null) spread = Number(row.spread); }
-      } catch {}
+function withCORS(handler) {
+  return async (req) => {
+    const origin = req.headers.get('origin') || '';
+    const isAllowed = !origin || ALLOWED.length === 0 || ALLOWED.includes(origin);
+
+    if (req.method === 'OPTIONS') {
+      const h = new Headers();
+      if (isAllowed) h.set('access-control-allow-origin', origin || '*');
+      h.set('access-control-allow-headers', 'content-type, authorization');
+      h.set('access-control-allow-methods', 'GET, OPTIONS');
+      h.set('vary', 'origin');
+      return new Response(null, { status: 204, headers: h });
     }
-    if (!Number.isFinite(spread)) spread = 8;
 
-    // filtros
-    const bank = (url.searchParams.get('bank') || '').toLowerCase();
-    const amountVES = Number(url.searchParams.get('amountVES') || '0') || 0;
-
-    // lee último punto (90 min) de la vista
-    const since = new Date(Date.now() - 90*60*1000).toISOString();
-    const q = new URL(`${SB_URL}/rest/v1/v_p2p_monitor_1m`);
-    q.searchParams.set('select','t_min,eff_buy,eff_sell,spread,n,bank,amount_bucket');
-    q.searchParams.set('scope','eq.public');
-    q.searchParams.set('t_min',`gte.${since}`);
-    q.searchParams.set('order','t_min.desc');
-    q.searchParams.set('limit','1');
-    if (bank) q.searchParams.set('bank', `eq.${bank}`);
-if (amountVES) {
-  const b = amountVES < 200000 ? '<200k' : amountVES < 1e6 ? '200k–1M' : amountVES < 5e6 ? '1M–5M' : '≥5M';
-  q.searchParams.set('amount_bucket', `eq.${encodeURIComponent(b)}`);
+    const res = await handler(req);
+    const headers = new Headers(res.headers);
+    if (isAllowed) headers.set('access-control-allow-origin', origin || '*');
+    headers.set('vary', 'origin');
+    return new Response(res.body, { status: res.status, headers });
+  };
 }
-// Nota: si no hay amount, NO filtramos por amount_bucket
 
-    let baseBuy, baseSell, ts, source='supabase';
-    try {
-      const r2 = await fetch(q.toString(), { headers: sbHeaders(), cache: 'no-store' });
-      if (r2.ok) {
-        const rows = await r2.json();
-        if (rows?.length) {
-          const last = rows[0];
-          baseBuy  = Number(last.eff_buy);
-          baseSell = Number(last.eff_sell);
-          ts = last.t_min;
+async function handler(req) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const spread = Number(searchParams.get('spread') ?? '8'); // % por defecto
+    const bank = searchParams.get('bank') || undefined;
+    const amountVES = searchParams.get('amountVES')
+      ? Number(searchParams.get('amountVES'))
+      : undefined;
+
+    // 1) Intenta tu vista agregada
+    const q = new URL(`${process.env.SUPABASE_REST_URL}/v_latest_rate`);
+    if (bank) q.searchParams.set('bank', `eq.${bank}`);
+    if (amountVES) {
+      const b =
+        amountVES < 200000
+          ? '<200k'
+          : amountVES < 1_000_000
+          ? '200k–1M'
+          : amountVES < 5_000_000
+          ? '1M–5M'
+          : '≥5M';
+      q.searchParams.set('amount_bucket', `eq.${encodeURIComponent(b)}`);
+    }
+    q.searchParams.set('limit', '1');
+    q.searchParams.set('order', 'ts.desc');
+    q.searchParams.set('select', 'eff_buy,eff_sell,ts');
+
+    const r1 = await fetch(q, {
+      headers: {
+        apikey: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE,
+        authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
+        accept: 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!r1.ok) {
+      const body = await r1.text();
+      // sigue al fallback, pero adjunta razón en debug
+      // console.warn('supabase latest_rate', r1.status, body);
+    } else {
+      const arr = await r1.json();
+      if (Array.isArray(arr) && arr.length) {
+        const { eff_buy, eff_sell, ts } = arr[0];
+        if (eff_buy && eff_sell) {
+          const s = Number(((eff_sell - eff_buy) / ((eff_buy + eff_sell) / 2)) * 100);
+          return json({
+            source: 'agg',
+            executable: {
+              buy: Math.round(eff_buy * (1 - spread / 100)),
+              sell: Math.round(eff_sell * (1 + spread / 100)),
+              spread_pct: spread,
+            },
+            raw: { eff_buy, eff_sell, spread_calc_pct: s, ts },
+          });
         }
       }
-    } catch {}
-
-    // fallback a /api/feeds/binance si no hay datos
-    if (!(Number.isFinite(baseBuy) && Number.isFinite(baseSell))) {
-      const uf = new URL(`${SITE}/api/feeds/binance`);
-      if (bank) uf.searchParams.set('bank', bank);
-      if (amountVES) uf.searchParams.set('amountVES', String(amountVES));
-
-      const r = await fetch(uf.toString(), { cache:'no-store' });
-      const j = await r.json();
-      if (!r.ok || !Number.isFinite(j?.eff_buy) || !Number.isFinite(j?.eff_sell)) {
-        return withCORS(req, NextResponse.json({ error: 'Sin datos en Binance' }, { status: 502 }));
-      }
-      baseBuy  = Number(j.eff_buy);
-      baseSell = Number(j.eff_sell);
-      ts = j.ts || new Date().toISOString();
-      source = 'binance_fallback';
-
-      // inserta muestra para que quede histórico
-      try {
-        await fetch(`${SB_URL}/rest/v1/p2p_monitor_samples?select=*`, {
-          method:'POST',
-          headers:{ ...sbHeaders(true), Prefer:'return=representation' },
-          body: JSON.stringify({
-            scope:'public',
-            eff_buy: baseBuy,
-            eff_sell: baseSell,
-            spread: baseSell - baseBuy,
-            n: Math.min(j.n_buy||0, j.n_sell||0),
-            bank: bank || null,
-            amount_ves: amountVES || null
-          })
-        });
-      } catch {}
     }
 
-    const k = 1 + Number(spread)/100;
-    return withCORS(req, NextResponse.json({
-      ts,
-      spread_pct: Number(spread),
-      base: { buy: baseBuy, sell: baseSell },
+    // 2) Fallback: llama a tu feed de Binance interno
+    const r2 = await fetch(new URL(req.url).origin + '/api/feeds/binance', {
+      cache: 'no-store',
+    });
+    const ct = r2.headers.get('content-type') || '';
+    if (!r2.ok) {
+      const body = await r2.text();
+      return json({ error: 'feed_binance_failed', status: r2.status, body }, 502);
+    }
+    if (!ct.includes('application/json')) {
+      const body = await r2.text();
+      return json({ error: 'feed_binance_not_json', contentType: ct, body }, 502);
+    }
+    const feed = await r2.json();
+    if (!feed || !feed.eff_buy || !feed.eff_sell) {
+      return json({ error: 'feed_binance_empty', feed }, 502);
+    }
+    return json({
+      source: 'binance',
       executable: {
-        buy:  baseBuy / k,   // Vende USDT
-        sell: baseSell * k   // Compra USDT
+        buy: Math.round(feed.eff_buy * (1 - spread / 100)),
+        sell: Math.round(feed.eff_sell * (1 + spread / 100)),
+        spread_pct: spread,
       },
-      source,
-      bank: bank || '*',
-      amountVES: amountVES || null
-    }, { headers:{ 'Cache-Control':'no-store' }}));
-  } catch (e) {
-    return withCORS(req, NextResponse.json({ error: String(e?.message || e) }, { status: 500 }));
+      raw: feed,
+    });
+  } catch (err) {
+    return json({ error: 'internal', message: String(err.stack || err) }, 500);
   }
 }
+
+export const GET = withCORS(handler);
+export const OPTIONS = withCORS(handler);
