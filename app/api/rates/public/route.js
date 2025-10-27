@@ -54,12 +54,11 @@ export async function GET(req) {
     q.searchParams.set('order','t_min.desc');
     q.searchParams.set('limit','1');
     if (bank) q.searchParams.set('bank', `eq.${bank}`);
-    if (amountVES) {
-      const b = amountVES < 200000 ? '<200k' : amountVES < 1e6 ? '200k–1M' : amountVES < 5e6 ? '1M–5M' : '≥5M';
-      q.searchParams.set('amount_bucket', `eq.${encodeURIComponent(b)}`);
-    } else {
-      q.searchParams.set('amount_bucket', 'eq.*');
-    }
+if (amountVES) {
+  const b = amountVES < 200000 ? '<200k' : amountVES < 1e6 ? '200k–1M' : amountVES < 5e6 ? '1M–5M' : '≥5M';
+  q.searchParams.set('amount_bucket', `eq.${encodeURIComponent(b)}`);
+}
+// Nota: si no hay amount, NO filtramos por amount_bucket
 
     let baseBuy, baseSell, ts, source='supabase';
     try {

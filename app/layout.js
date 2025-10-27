@@ -1,3 +1,5 @@
+//  app/layout.js
+
 export const metadata = {
   title: 'USDT/VES Backend',
   description: 'API y backend serverless para el exchange USDT⇄VES',

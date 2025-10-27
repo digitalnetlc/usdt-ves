@@ -1,3 +1,5 @@
+//app/api/stripe/webhook
+
 import Stripe from 'stripe';
 
 const SB_URL = process.env.SUPABASE_URL;
